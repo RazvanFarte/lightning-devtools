@@ -43,7 +43,15 @@ class HarExporter @Inject constructor() {
     fun buildArchive(
         pages: List<RecordedPage>,
         entries: List<RecordedEntry>,
+        redactSecrets: Boolean = true,
         browserVersion: String = BuildConfig.VERSION_NAME
+    ): HarArchive = buildRawArchive(pages, entries, browserVersion)
+        .let { if (redactSecrets) HarRedactor.redact(it) else it }
+
+    private fun buildRawArchive(
+        pages: List<RecordedPage>,
+        entries: List<RecordedEntry>,
+        browserVersion: String
     ): HarArchive = HarArchive(
         log = HarLog(
             version = "1.2",

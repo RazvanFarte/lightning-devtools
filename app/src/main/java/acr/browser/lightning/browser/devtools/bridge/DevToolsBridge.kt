@@ -123,6 +123,7 @@ class DevToolsBridge @Inject constructor(
                 method = root.string("method") ?: "GET",
                 url = root.string("url").orEmpty(),
                 protocol = "",
+                requestHeaders = root.headers("requestHeaders"),
                 requestBody = root.string("requestBody"),
                 requestBodyMimeType = mimeType.ifEmpty { null },
                 status = root.int("status") ?: 0,

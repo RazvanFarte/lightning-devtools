@@ -32,6 +32,13 @@ class DevToolsController @Inject constructor(
     private val _isOpen = MutableStateFlow(false)
     val isOpen: StateFlow<Boolean> = _isOpen.asStateFlow()
 
+    /**
+     * Credentials are stripped from exported files unless this is switched off. Defaults to on
+     * because an exported HAR is meant to be sent somewhere.
+     */
+    private val _redactSecrets = MutableStateFlow(true)
+    val redactSecrets: StateFlow<Boolean> = _redactSecrets.asStateFlow()
+
     private val _lastExport = MutableStateFlow<ExportResult?>(null)
     val lastExport: StateFlow<ExportResult?> = _lastExport.asStateFlow()
 
@@ -49,6 +56,10 @@ class DevToolsController @Inject constructor(
 
     fun toggleRecording() {
         networkRecorder.setRecording(!networkRecorder.isRecording.value)
+    }
+
+    fun toggleRedaction() {
+        _redactSecrets.value = !_redactSecrets.value
     }
 
     fun clear() {
@@ -73,7 +84,11 @@ class DevToolsController @Inject constructor(
             return
         }
 
-        val archive = harExporter.buildArchive(networkRecorder.pages.value, entries)
+        val archive = harExporter.buildArchive(
+            pages = networkRecorder.pages.value,
+            entries = entries,
+            redactSecrets = _redactSecrets.value
+        )
         val fileName = harExporter.suggestFileName(networkRecorder.pages.value)
         val contents = harExporter.toJson(archive)
 
@@ -94,7 +109,11 @@ class DevToolsController @Inject constructor(
             return
         }
 
-        val archive = harExporter.buildArchive(networkRecorder.pages.value, entries)
+        val archive = harExporter.buildArchive(
+            pages = networkRecorder.pages.value,
+            entries = entries,
+            redactSecrets = _redactSecrets.value
+        )
         val fileName = harExporter.suggestFileName(networkRecorder.pages.value)
         val uri = harExporter.writeForSharing(context, fileName, harExporter.toJson(archive))
 

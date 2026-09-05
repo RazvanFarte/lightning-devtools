@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -135,6 +136,7 @@ private fun NetworkTab(
 ) {
     val entries by controller.networkRecorder.entries.collectAsState()
     val isRecording by controller.networkRecorder.isRecording.collectAsState()
+    val redactSecrets by controller.redactSecrets.collectAsState()
     var filter by remember { mutableStateOf("all") }
     var expandedId by remember { mutableStateOf<String?>(null) }
 
@@ -179,6 +181,17 @@ private fun NetworkTab(
                     label = { Text(type, fontSize = 12.sp) }
                 )
             }
+        }
+
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(checked = redactSecrets, onCheckedChange = { controller.toggleRedaction() })
+            Text(
+                text = "Redact passwords and tokens on export",
+                style = MaterialTheme.typography.labelSmall
+            )
         }
 
         Text(

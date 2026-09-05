@@ -86,6 +86,43 @@
         }
     }
 
+    /**
+     * Resolve a possibly relative URL against the document, so entries can be matched against the
+     * native recorder's absolute URLs. Without this a form posting to "/api/user/login/" never
+     * lines up with the native entry for the same request.
+     */
+    function absolute(url) {
+        try {
+            return new URL(url, location.href).href;
+        } catch (e) {
+            return url;
+        }
+    }
+
+    /** Normalise fetch's several accepted header shapes into a name/value list. */
+    function normalizeHeaders(headers) {
+        var list = [];
+        if (!headers) return list;
+        try {
+            if (typeof headers.forEach === 'function' && !Array.isArray(headers)) {
+                headers.forEach(function (value, name) {
+                    list.push({ name: String(name), value: String(value) });
+                });
+            } else if (Array.isArray(headers)) {
+                headers.forEach(function (pair) {
+                    if (pair && pair.length >= 2) {
+                        list.push({ name: String(pair[0]), value: String(pair[1]) });
+                    }
+                });
+            } else {
+                Object.keys(headers).forEach(function (name) {
+                    list.push({ name: name, value: String(headers[name]) });
+                });
+            }
+        } catch (e) { /* ignore */ }
+        return list;
+    }
+
     function headersToList(headerString) {
         var list = [];
         if (!headerString) return list;
@@ -146,9 +183,26 @@
     var originalOpen = XhrProto.open;
     var originalSend = XhrProto.send;
 
+    var originalSetRequestHeader = XhrProto.setRequestHeader;
+
     XhrProto.open = function (method, url) {
-        this.__dt = { method: method, url: url, start: Date.now() };
+        this.__dt = {
+            method: method,
+            url: absolute(url),
+            start: Date.now(),
+            requestHeaders: []
+        };
         return originalOpen.apply(this, arguments);
+    };
+
+    // The only way to see an XHR's request headers: there is no getter for them.
+    XhrProto.setRequestHeader = function (name, value) {
+        try {
+            if (this.__dt) {
+                this.__dt.requestHeaders.push({ name: String(name), value: String(value) });
+            }
+        } catch (e) { /* ignore */ }
+        return originalSetRequestHeader.apply(this, arguments);
     };
 
     XhrProto.send = function (body) {
@@ -166,6 +220,7 @@
                         type: 'xhr',
                         method: self.__dt.method,
                         url: self.__dt.url,
+                        requestHeaders: self.__dt.requestHeaders,
                         requestBody: self.__dt.requestBody,
                         status: self.status,
                         statusText: self.statusText,
@@ -187,12 +242,18 @@
         var originalFetch = window.fetch;
         window.fetch = function (input, init) {
             var start = Date.now();
-            var url = typeof input === 'string' ? input : (input && input.url) || '';
+            var url = absolute(typeof input === 'string' ? input : (input && input.url) || '');
             var method = (init && init.method) ||
                 (typeof input !== 'string' && input && input.method) || 'GET';
             var requestBody = init && typeof init.body === 'string'
                 ? truncate(init.body)
                 : null;
+            // Headers may be given on the init object or baked into a Request instance.
+            var requestHeaders = normalizeHeaders(
+                (init && init.headers) ||
+                (typeof input !== 'string' && input && input.headers) ||
+                null
+            );
 
             return originalFetch.apply(this, arguments).then(function (response) {
                 try {
@@ -207,6 +268,7 @@
                             type: 'fetch',
                             method: method,
                             url: url || response.url,
+                            requestHeaders: requestHeaders,
                             requestBody: requestBody,
                             status: response.status,
                             statusText: response.statusText,
@@ -224,6 +286,7 @@
                     type: 'fetch',
                     method: method,
                     url: url,
+                    requestHeaders: requestHeaders,
                     requestBody: requestBody,
                     status: 0,
                     statusText: '',

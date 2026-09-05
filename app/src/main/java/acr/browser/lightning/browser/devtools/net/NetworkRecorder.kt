@@ -14,9 +14,9 @@ import kotlinx.coroutines.flow.update
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.InputStream
+import kotlin.math.abs
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 
@@ -122,8 +122,47 @@ class NetworkRecorder @Inject constructor(
         }
     }
 
-    /** Add an entry contributed by the injected page agent (used for request bodies and XHR). */
-    fun addAgentEntry(entry: RecordedEntry) = record(entry)
+    /**
+     * Add an entry contributed by the injected page agent.
+     *
+     * A bodyless XHR is seen twice — once natively and once by the agent — so rather than logging
+     * both, the agent's request body and headers are merged into the native entry, which has the
+     * authoritative status, timings and response. Only when there is no native counterpart (a
+     * POST, which is never replayed) is a standalone entry added.
+     */
+    fun addAgentEntry(entry: RecordedEntry) {
+        _entries.update { current ->
+            val index = current.indexOfLast { it.canMergeWith(entry) }
+            if (index < 0) {
+                appended(current, entry)
+            } else {
+                current.toMutableList().also { list ->
+                    val native = list[index]
+                    list[index] = native.copy(
+                        requestBody = entry.requestBody ?: native.requestBody,
+                        requestBodyMimeType = entry.requestBodyMimeType
+                            ?: native.requestBodyMimeType,
+                        requestHeaders = native.requestHeaders.ifEmpty { entry.requestHeaders }
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether [agent] describes the same exchange as this natively recorded entry.
+     *
+     * Matching is by method and URL within a short time window; a page may legitimately issue the
+     * same request repeatedly, so the window keeps a later poll from being merged into an earlier
+     * one. Entries that already carry a body are excluded so two agent reports cannot both land
+     * on the same native entry.
+     */
+    private fun RecordedEntry.canMergeWith(agent: RecordedEntry): Boolean =
+        source == RecordedEntry.Source.NATIVE &&
+            requestBody == null &&
+            method.equals(agent.method, ignoreCase = true) &&
+            url == agent.url &&
+            abs(startedWallClockMillis - agent.startedWallClockMillis) < MERGE_WINDOW_MILLIS
 
     /**
      * Intercept a WebView request, perform it via OkHttp, record it, and return the response.
@@ -140,9 +179,10 @@ class NetworkRecorder @Inject constructor(
         val startedAt = System.currentTimeMillis()
 
         return try {
-            val call = client.newCall(buildRequest(request))
+            val okRequest = buildRequest(request)
+            val call = client.newCall(okRequest)
             val response = call.execute()
-            buildInterceptedResponse(request, call, response, url, startedAt)
+            buildInterceptedResponse(okRequest, request, call, response, url, startedAt)
         } catch (e: Exception) {
             // Record the failure so it is visible in the panel, then let the WebView retry itself.
             recordFailure(url, request.method, startedAt, e)
@@ -152,14 +192,21 @@ class NetworkRecorder @Inject constructor(
     }
 
     /**
-     * Only plain http(s) sub-resource fetches are replayable.
+     * Only plain http(s) requests that carry no body are replayable.
      *
-     * WebSocket upgrades are excluded because a [WebResourceResponse] cannot carry one; they are
-     * captured by the page agent instead.
+     * The body restriction is not a simplification, it is a hard limit of the platform:
+     * [android.webkit.WebViewClient.shouldInterceptRequest] reports a request's method, URL and
+     * headers but **never its body**, and no API exposes it. Replaying a POST would therefore
+     * send an empty body, and the server would reject it — which is exactly what happened to
+     * login forms before this guard existed. Body-bearing methods are handed back to the WebView
+     * untouched and captured by the page agent instead, which sees the body before it is sent.
+     *
+     * WebSocket upgrades are excluded too, because a [WebResourceResponse] cannot carry one.
      */
     private fun isReplayable(request: WebResourceRequest): Boolean {
         val scheme = request.url.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") return false
+        if (request.method.uppercase() !in BODYLESS_METHODS) return false
         if (request.requestHeaders["Upgrade"]?.equals("websocket", ignoreCase = true) == true) {
             return false
         }
@@ -184,19 +231,13 @@ class NetworkRecorder @Inject constructor(
             ?.takeIf { it.isNotBlank() }
             ?.let { builder.header("Cookie", it) }
 
-        // shouldInterceptRequest does not expose the request body, so a replayed POST would lose
-        // it. Sending an empty body would corrupt the request, so non-GET methods that require a
-        // body are handled by the page agent instead and skipped here.
-        return if (request.method.equals("GET", ignoreCase = true) ||
-            request.method.equals("HEAD", ignoreCase = true)
-        ) {
-            builder.method(request.method, null).build()
-        } else {
-            builder.method(request.method, ByteArray(0).toRequestBody()).build()
-        }
+        // Only bodyless methods reach this point; isReplayable() rejects everything else, so a
+        // null body here is always correct rather than a lossy approximation.
+        return builder.method(request.method, null).build()
     }
 
     private fun buildInterceptedResponse(
+        okRequest: Request,
         request: WebResourceRequest,
         call: Call,
         response: Response,
@@ -230,7 +271,10 @@ class NetworkRecorder @Inject constructor(
                     method = request.method,
                     url = url,
                     protocol = response.protocol.toHarHttpVersion(),
-                    requestHeaders = request.requestHeaders.map { HarHeader(it.key, it.value) },
+                    // The headers OkHttp actually sent, not WebResourceRequest.requestHeaders.
+                    // The latter silently omits Cookie, which made every recorded request look
+                    // unauthenticated even though the cookie bridge had supplied one.
+                    requestHeaders = okRequest.headers.toHarHeaders(),
                     status = response.code,
                     statusText = response.message.ifBlank { defaultReason(response.code) },
                     responseHeaders = responseHeaders,
@@ -278,21 +322,30 @@ class NetworkRecorder @Inject constructor(
     }
 
     private fun record(entry: RecordedEntry) {
-        _entries.update { current ->
-            // Bound memory: the log is a ring buffer, since a long session on a media-heavy site
-            // can otherwise accumulate tens of thousands of entries on a phone.
-            if (current.size >= MAX_ENTRIES) {
-                current.drop(current.size - MAX_ENTRIES + 1) + entry
-            } else {
-                current + entry
-            }
-        }
+        _entries.update { appended(it, entry) }
     }
+
+    /**
+     * Append to the log, bounding memory: it is a ring buffer, since a long session on a
+     * media-heavy site can otherwise accumulate tens of thousands of entries on a phone.
+     */
+    private fun appended(current: List<RecordedEntry>, entry: RecordedEntry): List<RecordedEntry> =
+        if (current.size >= MAX_ENTRIES) {
+            current.drop(current.size - MAX_ENTRIES + 1) + entry
+        } else {
+            current + entry
+        }
 
     private companion object {
         const val TAG = "NetworkRecorder"
         const val MAX_ENTRIES = 1500
         const val MAX_CAPTURED_BODY_BYTES = 1024 * 1024
+
+        /** How far apart a native and an agent report may be and still be the same exchange. */
+        const val MERGE_WINDOW_MILLIS = 5_000L
+
+        /** Methods that never carry a request body, and so can be replayed without loss. */
+        val BODYLESS_METHODS = setOf("GET", "HEAD")
         const val HTTP_STATUS_MIN = 100
         const val HTTP_STATUS_MAX = 599
 
