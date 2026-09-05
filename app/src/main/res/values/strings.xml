@@ -353,4 +353,5 @@
 
     <!-- Search -->
     <string name="search_insert_suggestion">Insert suggestion</string>
+    <string name="dev_tools">DevTools</string>
 </resources>

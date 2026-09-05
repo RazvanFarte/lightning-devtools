@@ -3,6 +3,7 @@ package acr.browser.lightning.browser.tab
 import acr.browser.lightning.R
 import acr.browser.lightning.adblock.AdBlocker
 import acr.browser.lightning.adblock.allowlist.AllowListModel
+import acr.browser.lightning.browser.devtools.net.NetworkRecorder
 import acr.browser.lightning.browser.tab.settings.TabSettings
 import acr.browser.lightning.concurrency.TabCoroutineScope
 import acr.browser.lightning.databinding.DialogAuthRequestBinding
@@ -49,6 +50,7 @@ class TabWebViewClient @AssistedInject constructor(
     private val adBlocker: Deferred<@JvmSuppressWildcards AdBlocker>,
     private val allowListModel: AllowListModel,
     private val urlHandler: UrlHandler,
+    private val networkRecorder: NetworkRecorder,
     @Assisted private val headers: Map<String, String>,
     private val sslWarningPreferences: SslWarningPreferences,
     private val textReflow: TextReflow,
@@ -151,6 +153,7 @@ class TabWebViewClient @AssistedInject constructor(
         }
         searchQuerySelection = Pair(0, searchQuery.length)
         currentUrl = url
+        networkRecorder.onPageStarted(url, view.title.orEmpty())
         tabCoroutineScope.launch {
             startedSharedFlow.emit(Unit)
             urlSharedFlow.emit(url)
@@ -319,7 +322,10 @@ class TabWebViewClient @AssistedInject constructor(
         } else if (request.url.path?.startsWith(cache.path) == true) {
             cacheStoragePathHandler.handle(request.url.path!!.substring(cache.path.length))
         } else {
-            super.shouldInterceptRequest(view, request)
+            // Returns null unless the user has switched recording on, in which case the request is
+            // replayed through OkHttp so it can be captured. Null falls through to the WebView's
+            // own network stack, which is the untouched default path.
+            networkRecorder.intercept(request) ?: super.shouldInterceptRequest(view, request)
         }
     }
 

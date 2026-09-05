@@ -2,6 +2,7 @@ package acr.browser.lightning.browser
 
 import acr.browser.lightning.BrowserUiEvent
 import acr.browser.lightning.ThemableActivity
+import acr.browser.lightning.browser.devtools.DevToolsController
 import acr.browser.lightning.browser.keys.KeyEventAdapter
 import acr.browser.lightning.browser.search.IntentExtractor
 import acr.browser.lightning.browser.tab.TabPager
@@ -59,6 +60,9 @@ abstract class BrowserActivity : ThemableActivity(), BrowserContract.View {
     @Inject
     internal lateinit var suggestionsModel: SuggestionsModel
 
+    @Inject
+    internal lateinit var devToolsController: DevToolsController
+
     override fun onCreate(savedInstanceState: Bundle?) {
 
         val browserFrame = FrameLayout(this)
@@ -87,7 +91,8 @@ abstract class BrowserActivity : ThemableActivity(), BrowserContract.View {
                     presenter,
                     browserFrame,
                     customFrame,
-                    suggestionsModel
+                    suggestionsModel,
+                    devToolsController
                 )
                 if (currentState.showCustomView) {
                     requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE

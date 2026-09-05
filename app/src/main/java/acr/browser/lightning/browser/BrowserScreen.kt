@@ -2,6 +2,8 @@ package acr.browser.lightning.browser
 
 import acr.browser.lightning.BrowserUiEvent
 import acr.browser.lightning.browser.compose.BottomTabs
+import acr.browser.lightning.browser.devtools.DevToolsController
+import acr.browser.lightning.browser.devtools.compose.DevToolsPanel
 import acr.browser.lightning.browser.compose.CustomView
 import acr.browser.lightning.browser.compose.DesktopTabs
 import acr.browser.lightning.browser.compose.DrawerTabs
@@ -26,6 +28,7 @@ fun BrowserScreen(
     browserFrameLayout: FrameLayout,
     customFrameLayout: FrameLayout,
     suggestionsModel: SuggestionsModel,
+    devToolsController: DevToolsController,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     browserViewState.ephemeral?.let {
@@ -80,6 +83,6 @@ fun BrowserScreen(
             null -> Unit
         }
     }
+
+    DevToolsPanel(devToolsController)
 }
-
-

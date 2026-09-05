@@ -21,6 +21,7 @@ import acr.browser.lightning.html.homepage.HomeCleanup
 import acr.browser.lightning.html.homepage.HomePageReader
 import acr.browser.lightning.js.InvertPage
 import acr.browser.lightning.js.TextReflow
+import acr.browser.lightning.js.DevToolsAgent
 import acr.browser.lightning.js.ThemeColor
 import acr.browser.lightning.log.AndroidLogger
 import acr.browser.lightning.log.Logger
@@ -232,6 +233,9 @@ class AppModule {
 
     @Provides
     fun providesThemeColor(): ThemeColor = mezzanine()
+
+    @Provides
+    fun providesDevToolsAgent(): DevToolsAgent = mezzanine()
 
     @Provides
     fun providesInvertPage(): InvertPage = mezzanine()

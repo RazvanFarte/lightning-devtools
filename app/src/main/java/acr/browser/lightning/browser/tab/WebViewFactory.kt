@@ -1,5 +1,6 @@
 package acr.browser.lightning.browser.tab
 
+import acr.browser.lightning.browser.devtools.bridge.DevToolsBridge
 import acr.browser.lightning.browser.tab.settings.RenderingMode
 import acr.browser.lightning.browser.tab.settings.TabSettings
 import acr.browser.lightning.browser.tab.settings.TextSize
@@ -29,6 +30,7 @@ class WebViewFactory @Inject constructor(
     private val activity: Activity,
     private val logger: Logger,
     private val userPreferencesDataStore: UserPreferencesDataStore,
+    private val devToolsBridge: DevToolsBridge,
     @IncognitoMode private val incognitoMode: Boolean,
 ) {
 
@@ -66,6 +68,9 @@ class WebViewFactory @Inject constructor(
     @SuppressLint("SetJavaScriptEnabled")
     fun createWebView(tabSettings: TabSettings): Lazy<WebView> = lazy {
         WebView(activity).apply {
+            // The agent only reports once recording is switched on, but it has to be attached at
+            // construction: a document-start script cannot be added retroactively to a loaded page.
+            devToolsBridge.install(this)
             tag = CompositeTouchListener().also(::setOnTouchListener)
             isFocusableInTouchMode = true
             isFocusable = true

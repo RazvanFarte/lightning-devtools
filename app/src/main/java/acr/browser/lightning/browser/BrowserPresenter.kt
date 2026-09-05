@@ -3,6 +3,7 @@ package acr.browser.lightning.browser
 import acr.browser.lightning.BrowserUiEvent
 import acr.browser.lightning.R
 import acr.browser.lightning.adblock.allowlist.AllowListModel
+import acr.browser.lightning.browser.devtools.DevToolsController
 import acr.browser.lightning.browser.history.HistoryRecord
 import acr.browser.lightning.browser.keys.KeyCombo
 import acr.browser.lightning.browser.menu.MenuSelection
@@ -97,6 +98,7 @@ class BrowserPresenter @Inject constructor(
     private val numberFormatter: NumberFormatter,
     private val userPreferencesDataStore: UserPreferencesDataStore,
     private val themeProvider: ThemeProvider,
+    private val devToolsController: DevToolsController,
 ) {
 
     private val browserCoroutineScope = BrowserCoroutineScope(
@@ -633,6 +635,7 @@ class BrowserPresenter @Inject constructor(
             MenuSelection.ADD_BOOKMARK -> currentTab?.url?.takeIf { !it.isSpecialUrl() }
                 ?.let { showAddBookmarkDialog() }
 
+            MenuSelection.DEV_TOOLS -> devToolsController.open()
             MenuSelection.SETTINGS -> navigator.openSettings()
             MenuSelection.BACK -> onBackClick()
             MenuSelection.FORWARD -> onForwardClick()

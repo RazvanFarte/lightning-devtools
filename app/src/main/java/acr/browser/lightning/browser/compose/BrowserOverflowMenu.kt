@@ -128,6 +128,14 @@ fun BrowserOverflowMenu(presenter: BrowserPresenter, browserViewState: BrowserCo
                     }
                 )
             }
+            // Offered in incognito too: inspecting a private session is a normal thing to want.
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.dev_tools)) },
+                onClick = {
+                    presenter.onEvent(BrowserUiEvent.MenuClick(MenuSelection.DEV_TOOLS))
+                    dropDownExpanded = false
+                }
+            )
             if (!browserViewState.isIncognito) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.settings)) },
