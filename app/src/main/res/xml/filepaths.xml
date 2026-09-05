@@ -2,4 +2,5 @@
 <paths>
     <external-path name="share" path="/" />
     <external-path name="external_files" path="."/>
+    <cache-path name="devtools" path="devtools/" />
 </paths>
