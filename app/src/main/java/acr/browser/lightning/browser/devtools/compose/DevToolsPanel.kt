@@ -3,8 +3,10 @@ package acr.browser.lightning.browser.devtools.compose
 import acr.browser.lightning.browser.devtools.DevToolsController
 import acr.browser.lightning.browser.devtools.console.ConsoleMessage
 import acr.browser.lightning.browser.devtools.net.RecordedEntry
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,9 +22,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -77,10 +82,14 @@ fun DevToolsPanel(controller: DevToolsController) {
             is DevToolsController.ExportResult.Saved ->
                 "Saved ${result.fileName} to Downloads (${result.entryCount} requests)"
 
+            is DevToolsController.ExportResult.CurlCopied ->
+                "curl copied - it carries live cookies and auth headers"
+
             DevToolsController.ExportResult.Empty ->
                 "Nothing recorded yet - reload the page with recording on"
 
-            DevToolsController.ExportResult.Failed -> "Could not write the HAR file"
+            // Failure is reported for curl copying as well as HAR writing, so stay generic.
+            DevToolsController.ExportResult.Failed -> "That did not work - check logcat"
             null -> null
         }
         message?.let {
@@ -134,6 +143,7 @@ private fun NetworkTab(
     onExport: () -> Unit,
     onShare: () -> Unit
 ) {
+    val context = LocalContext.current
     val entries by controller.networkRecorder.entries.collectAsState()
     val isRecording by controller.networkRecorder.isRecording.collectAsState()
     val redactSecrets by controller.redactSecrets.collectAsState()
@@ -216,7 +226,9 @@ private fun NetworkTab(
                     NetworkRow(
                         entry = entry,
                         isExpanded = expandedId == entry.id,
-                        onClick = { expandedId = if (expandedId == entry.id) null else entry.id }
+                        onClick = { expandedId = if (expandedId == entry.id) null else entry.id },
+                        onCopyCurl = { controller.copyAsCurl(context, entry) },
+                        onShareCurl = { controller.shareCurl(context, entry) }
                     )
                     HorizontalDivider()
                 }
@@ -225,12 +237,26 @@ private fun NetworkTab(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun NetworkRow(entry: RecordedEntry, isExpanded: Boolean, onClick: () -> Unit) {
+private fun NetworkRow(
+    entry: RecordedEntry,
+    isExpanded: Boolean,
+    onClick: () -> Unit,
+    onCopyCurl: () -> Unit,
+    onShareCurl: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                // Long press is the gesture people reach for on a list row; the overflow button
+                // below opens the same menu for anyone who expects an explicit affordance.
+                onLongClick = { menuOpen = true }
+            )
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -248,6 +274,20 @@ private fun NetworkRow(entry: RecordedEntry, isExpanded: Boolean, onClick: () ->
                 text = "${entry.totalTimeMillis.toInt()} ms",
                 style = MaterialTheme.typography.labelSmall
             )
+            Box {
+                IconButton(
+                    onClick = { menuOpen = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Text("...", style = MaterialTheme.typography.titleMedium)
+                }
+                EntryMenu(
+                    expanded = menuOpen,
+                    onDismiss = { menuOpen = false },
+                    onCopyCurl = { menuOpen = false; onCopyCurl() },
+                    onShareCurl = { menuOpen = false; onShareCurl() }
+                )
+            }
         }
         Text(
             text = "${entry.method}  ${entry.resourceType}  ${entry.url}",
@@ -260,6 +300,42 @@ private fun NetworkRow(entry: RecordedEntry, isExpanded: Boolean, onClick: () ->
         if (isExpanded) {
             NetworkDetail(entry)
         }
+    }
+}
+
+/**
+ * Per-request actions.
+ *
+ * The curl entries are labelled as carrying credentials because they genuinely do: a command
+ * stripped of cookies and auth headers would not run, so redaction is deliberately not applied
+ * here even when it is enabled for HAR export.
+ */
+@Composable
+private fun EntryMenu(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    onCopyCurl: () -> Unit,
+    onShareCurl: () -> Unit
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        DropdownMenuItem(
+            text = { Text("Copy as cURL") },
+            onClick = onCopyCurl
+        )
+        DropdownMenuItem(
+            text = { Text("Send cURL to another app") },
+            onClick = onShareCurl
+        )
+        DropdownMenuItem(
+            enabled = false,
+            text = {
+                Text(
+                    "Includes cookies and auth headers",
+                    style = MaterialTheme.typography.labelSmall
+                )
+            },
+            onClick = {}
+        )
     }
 }
 

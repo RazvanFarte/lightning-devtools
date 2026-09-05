@@ -2,13 +2,18 @@ package acr.browser.lightning.browser.devtools
 
 import acr.browser.lightning.browser.devtools.console.ConsoleLog
 import acr.browser.lightning.browser.devtools.console.ConsoleMessage
+import acr.browser.lightning.browser.devtools.export.CurlBuilder
 import acr.browser.lightning.browser.devtools.har.HarExporter
 import acr.browser.lightning.browser.devtools.net.NetworkRecorder
+import acr.browser.lightning.browser.devtools.net.RecordedEntry
 import acr.browser.lightning.di.BrowserScope
 import acr.browser.lightning.log.Logger
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.webkit.CookieManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,6 +74,63 @@ class DevToolsController @Inject constructor(
 
     fun consumeExportResult() {
         _lastExport.value = null
+    }
+
+    /**
+     * Copy a recorded request to the clipboard as a runnable `curl` command.
+     *
+     * Cookies are taken from the entry when it has them and from the WebView's cookie store
+     * otherwise. That fallback is what makes an exported POST actually work: those entries come
+     * from the page agent, and neither fetch nor XHR will reveal the `Cookie` header to a script.
+     *
+     * The command is never redacted, because a redacted request does not run. The returned result
+     * says so, so the panel can warn that the clipboard now holds a live credential.
+     */
+    fun copyAsCurl(context: Context, entry: RecordedEntry) {
+        val curl = CurlBuilder.build(
+            entry = entry,
+            cookieHeader = runCatching {
+                CookieManager.getInstance().getCookie(entry.url)
+            }.getOrNull()
+        )
+
+        val copied = runCatching {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("curl", curl))
+        }.isSuccess
+
+        _lastExport.value = if (copied) {
+            ExportResult.CurlCopied(entry.url)
+        } else {
+            logger.log(TAG, "Could not write the curl command to the clipboard")
+            ExportResult.Failed
+        }
+    }
+
+    /** Send the `curl` command to another app, for when the clipboard is not the destination. */
+    fun shareCurl(context: Context, entry: RecordedEntry) {
+        val curl = CurlBuilder.build(
+            entry = entry,
+            cookieHeader = runCatching {
+                CookieManager.getInstance().getCookie(entry.url)
+            }.getOrNull()
+        )
+
+        runCatching {
+            context.startActivity(
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, curl)
+                        putExtra(Intent.EXTRA_SUBJECT, "curl ${entry.url}")
+                    },
+                    "Share curl command"
+                )
+            )
+        }.onFailure {
+            logger.log(TAG, "No app available to receive the curl command", it)
+            _lastExport.value = ExportResult.Failed
+        }
     }
 
     /**
@@ -143,6 +205,7 @@ class DevToolsController @Inject constructor(
     /** The outcome of an export, surfaced to the panel so it can confirm what happened. */
     sealed interface ExportResult {
         data class Saved(val fileName: String, val entryCount: Int, val uri: Uri) : ExportResult
+        data class CurlCopied(val url: String) : ExportResult
         data object Empty : ExportResult
         data object Failed : ExportResult
     }
