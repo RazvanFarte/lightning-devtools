@@ -138,11 +138,32 @@ class NetworkRecorder @Inject constructor(
             } else {
                 current.toMutableList().also { list ->
                     val native = list[index]
+                    // A metadata-only entry has no response at all, so the agent's view of it is
+                    // strictly better than nothing. A replayed entry already has an authoritative
+                    // response and keeps it.
+                    val takeResponseFromAgent = native.status == 0 && entry.status > 0
                     list[index] = native.copy(
                         requestBody = entry.requestBody ?: native.requestBody,
                         requestBodyMimeType = entry.requestBodyMimeType
                             ?: native.requestBodyMimeType,
-                        requestHeaders = native.requestHeaders.ifEmpty { entry.requestHeaders }
+                        requestHeaders = native.requestHeaders.ifEmpty { entry.requestHeaders },
+                        status = if (takeResponseFromAgent) entry.status else native.status,
+                        statusText = if (takeResponseFromAgent) {
+                            entry.statusText
+                        } else {
+                            native.statusText
+                        },
+                        responseHeaders = native.responseHeaders.ifEmpty { entry.responseHeaders },
+                        mimeType = native.mimeType.ifEmpty { entry.mimeType },
+                        bodyText = native.bodyText ?: entry.bodyText,
+                        bodyEncoding = native.bodyEncoding ?: entry.bodyEncoding,
+                        decodedBodySize = if (native.decodedBodySize >= 0) {
+                            native.decodedBodySize
+                        } else {
+                            entry.decodedBodySize
+                        },
+                        timings = if (takeResponseFromAgent) entry.timings else native.timings,
+                        error = native.error ?: entry.error
                     )
                 }
             }
@@ -173,16 +194,35 @@ class NetworkRecorder @Inject constructor(
      */
     fun intercept(request: WebResourceRequest): WebResourceResponse? {
         if (!_isRecording.value) return null
-        if (!isReplayable(request)) return null
 
         val url = request.url.toString()
         val startedAt = System.currentTimeMillis()
+
+        if (!isReplayable(request)) {
+            // We cannot perform this one, but we can still say what was asked for. Without this,
+            // a POST is known only through the page agent, which sees no Content-Type, Origin or
+            // Referer of its own and can never see Cookie at all.
+            recordRequestMetadata(request, url, startedAt)
+            return null
+        }
 
         return try {
             val okRequest = buildRequest(request)
             val call = client.newCall(okRequest)
             val response = call.execute()
-            buildInterceptedResponse(okRequest, request, call, response, url, startedAt)
+
+            if (response.code in REDIRECT_STATUS_RANGE) {
+                // WebResourceResponse throws "statusCode can't be in the [300, 399] range", so a
+                // redirect can never be returned to the WebView. Record the hop for the archive
+                // and decline, letting the WebView follow it and hand us the next request. The
+                // hop is therefore fetched twice, which is an acceptable cost for a debugging
+                // tool and keeps navigation and the address bar behaving normally.
+                recordRedirect(okRequest, call, response, url, startedAt)
+                response.close()
+                null
+            } else {
+                buildInterceptedResponse(okRequest, request, call, response, url, startedAt)
+            }
         } catch (e: Exception) {
             // Record the failure so it is visible in the panel, then let the WebView retry itself.
             recordFailure(url, request.method, startedAt, e)
@@ -305,6 +345,66 @@ class NetworkRecorder @Inject constructor(
         )
     }
 
+    /** Log a request we declined to replay, capturing everything knowable without performing it. */
+    private fun recordRequestMetadata(
+        request: WebResourceRequest,
+        url: String,
+        startedAt: Long
+    ) {
+        val headers = request.requestHeaders.map { HarHeader(it.key, it.value) }
+        // WebResourceRequest never includes Cookie, but the store can supply it, and without it
+        // an exported request cannot authenticate.
+        val cookie = runCatching { CookieManager.getInstance().getCookie(url) }.getOrNull()
+
+        record(
+            RecordedEntry(
+                id = "meta_${idCounter.incrementAndGet()}",
+                pageRef = currentPageRef,
+                startedWallClockMillis = startedAt,
+                method = request.method,
+                url = url,
+                protocol = "",
+                requestHeaders = if (cookie.isNullOrBlank()) {
+                    headers
+                } else {
+                    headers + HarHeader("Cookie", cookie)
+                },
+                timings = EMPTY_TIMINGS,
+                resourceType = "xhr",
+                source = RecordedEntry.Source.NATIVE
+            )
+        )
+    }
+
+    /** Log a redirect hop that we deliberately did not hand back to the WebView. */
+    private fun recordRedirect(
+        okRequest: Request,
+        call: Call,
+        response: Response,
+        url: String,
+        startedAt: Long
+    ) {
+        val listener = timings.remove(call)
+        record(
+            RecordedEntry(
+                id = "redirect_${idCounter.incrementAndGet()}",
+                pageRef = currentPageRef,
+                startedWallClockMillis = startedAt,
+                method = okRequest.method,
+                url = url,
+                protocol = response.protocol.toHarHttpVersion(),
+                requestHeaders = okRequest.headers.toHarHeaders(),
+                status = response.code,
+                statusText = response.message.ifBlank { defaultReason(response.code) },
+                responseHeaders = response.headers.toHarHeaders(),
+                timings = listener?.toHarTimings() ?: EMPTY_TIMINGS,
+                serverIpAddress = listener?.serverIpAddress,
+                resourceType = "other",
+                source = RecordedEntry.Source.NATIVE
+            )
+        )
+    }
+
     private fun recordFailure(url: String, method: String, startedAt: Long, e: Exception) {
         record(
             RecordedEntry(
@@ -346,6 +446,9 @@ class NetworkRecorder @Inject constructor(
 
         /** Methods that never carry a request body, and so can be replayed without loss. */
         val BODYLESS_METHODS = setOf("GET", "HEAD")
+
+        /** Statuses that WebResourceResponse refuses to accept from an interceptor. */
+        val REDIRECT_STATUS_RANGE = 300..399
         const val HTTP_STATUS_MIN = 100
         const val HTTP_STATUS_MAX = 599
 

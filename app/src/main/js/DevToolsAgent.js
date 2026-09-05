@@ -99,6 +99,55 @@
         }
     }
 
+    /**
+     * Resolve a request body of any accepted type to text, as a promise.
+     *
+     * Capturing only `typeof body === 'string'` missed most analytics traffic: Google Analytics
+     * and DoubleClick send `Blob`, `URLSearchParams` or a typed array, and those all arrived with
+     * no body recorded at all. Blob is read asynchronously, which is why this returns a promise
+     * rather than a value.
+     */
+    function bodyToText(body) {
+        try {
+            if (body === null || body === undefined) {
+                return Promise.resolve(null);
+            }
+            if (typeof body === 'string') {
+                return Promise.resolve(truncate(body));
+            }
+            if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+                return Promise.resolve(truncate(body.toString()));
+            }
+            if (typeof FormData !== 'undefined' && body instanceof FormData) {
+                var parts = [];
+                body.forEach(function (value, name) {
+                    parts.push(
+                        encodeURIComponent(name) + '=' +
+                        (typeof value === 'string' ? encodeURIComponent(value) : '[file]')
+                    );
+                });
+                return Promise.resolve(truncate(parts.join('&')));
+            }
+            if (typeof Blob !== 'undefined' && body instanceof Blob) {
+                if (typeof body.text === 'function') {
+                    return body.text().then(truncate)['catch'](function () {
+                        return '[Blob ' + body.size + ' bytes]';
+                    });
+                }
+                return Promise.resolve('[Blob ' + body.size + ' bytes]');
+            }
+            if (typeof ArrayBuffer !== 'undefined' && body instanceof ArrayBuffer) {
+                return Promise.resolve('[ArrayBuffer ' + body.byteLength + ' bytes]');
+            }
+            if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(body)) {
+                return Promise.resolve('[binary ' + body.byteLength + ' bytes]');
+            }
+            return Promise.resolve(truncate(String(body)));
+        } catch (e) {
+            return Promise.resolve(null);
+        }
+    }
+
     /** Normalise fetch's several accepted header shapes into a name/value list. */
     function normalizeHeaders(headers) {
         var list = [];
@@ -208,7 +257,7 @@
     XhrProto.send = function (body) {
         var self = this;
         if (self.__dt) {
-            self.__dt.requestBody = truncate(typeof body === 'string' ? body : null);
+            self.__dt.bodyPromise = bodyToText(body);
             self.addEventListener('loadend', function () {
                 try {
                     var responseText = null;
@@ -216,19 +265,24 @@
                     if (!self.responseType || self.responseType === 'text') {
                         responseText = truncate(self.responseText);
                     }
-                    post({
-                        type: 'xhr',
-                        method: self.__dt.method,
-                        url: self.__dt.url,
-                        requestHeaders: self.__dt.requestHeaders,
-                        requestBody: self.__dt.requestBody,
-                        status: self.status,
-                        statusText: self.statusText,
-                        responseHeaders: headersToList(self.getAllResponseHeaders()),
-                        mimeType: self.getResponseHeader('Content-Type') || '',
-                        responseBody: responseText,
-                        startedAt: self.__dt.start,
-                        durationMillis: Date.now() - self.__dt.start
+                    var status = self.status;
+                    var responseHeaders = headersToList(self.getAllResponseHeaders());
+                    var mimeType = self.getResponseHeader('Content-Type') || '';
+                    self.__dt.bodyPromise.then(function (requestBody) {
+                        post({
+                            type: 'xhr',
+                            method: self.__dt.method,
+                            url: self.__dt.url,
+                            requestHeaders: self.__dt.requestHeaders,
+                            requestBody: requestBody,
+                            status: status,
+                            statusText: self.statusText,
+                            responseHeaders: responseHeaders,
+                            mimeType: mimeType,
+                            responseBody: responseText,
+                            startedAt: self.__dt.start,
+                            durationMillis: Date.now() - self.__dt.start
+                        });
                     });
                 } catch (e) { /* ignore */ }
             });
@@ -245,9 +299,11 @@
             var url = absolute(typeof input === 'string' ? input : (input && input.url) || '');
             var method = (init && init.method) ||
                 (typeof input !== 'string' && input && input.method) || 'GET';
-            var requestBody = init && typeof init.body === 'string'
-                ? truncate(init.body)
-                : null;
+            var bodyPromise = bodyToText(
+                (init && init.body) ||
+                (typeof input !== 'string' && input && input.body) ||
+                null
+            );
             // Headers may be given on the init object or baked into a Request instance.
             var requestHeaders = normalizeHeaders(
                 (init && init.headers) ||
@@ -263,25 +319,33 @@
                     });
                     // Clone before the caller consumes the body; reading the original would
                     // leave the page with an already-used stream.
-                    response.clone().text().then(function (text) {
+                    Promise.all([
+                        response.clone().text()['catch'](function () { return null; }),
+                        bodyPromise
+                    ]).then(function (results) {
                         post({
                             type: 'fetch',
                             method: method,
                             url: url || response.url,
                             requestHeaders: requestHeaders,
-                            requestBody: requestBody,
+                            requestBody: results[1],
                             status: response.status,
                             statusText: response.statusText,
                             responseHeaders: headers,
                             mimeType: response.headers.get('Content-Type') || '',
-                            responseBody: truncate(text),
+                            responseBody: truncate(results[0]),
                             startedAt: start,
-                            durationMillis: Date.now() - start
+                            durationMillis: Date.now() - start,
+                            // A cross-origin no-cors fetch yields an opaque response: status 0
+                            // and no headers, by design. Flagging it stops that looking like a
+                            // failure in the panel.
+                            opaque: response.type === 'opaque'
                         });
-                    })['catch'](function () { /* opaque or streamed body */ });
+                    })['catch'](function () { /* ignore */ });
                 } catch (e) { /* ignore */ }
                 return response;
             })['catch'](function (error) {
+                bodyPromise.then(function (requestBody) {
                 post({
                     type: 'fetch',
                     method: method,
@@ -297,8 +361,42 @@
                     durationMillis: Date.now() - start,
                     error: String(error)
                 });
+                });
                 throw error;
             });
+        };
+    }
+
+    /* ------------------------------------------------------ sendBeacon capture */
+
+    if (navigator.sendBeacon) {
+        var originalSendBeacon = navigator.sendBeacon.bind(navigator);
+        navigator.sendBeacon = function (url, data) {
+            var start = Date.now();
+            var queued = originalSendBeacon(url, data);
+            try {
+                bodyToText(data).then(function (requestBody) {
+                    post({
+                        type: 'fetch',
+                        method: 'POST',
+                        url: absolute(url),
+                        requestHeaders: [],
+                        requestBody: requestBody,
+                        // The Beacon API returns only whether the send was queued; there is no
+                        // response to observe. The native layer records the request headers.
+                        status: 0,
+                        statusText: queued ? 'queued' : 'rejected',
+                        responseHeaders: [],
+                        mimeType: '',
+                        responseBody: null,
+                        startedAt: start,
+                        durationMillis: 0,
+                        beacon: true,
+                        error: queued ? null : 'sendBeacon refused the payload'
+                    });
+                });
+            } catch (e) { /* ignore */ }
+            return queued;
         };
     }
 
