@@ -1,3 +1,4 @@
+import java.io.File
 import app.cash.licensee.SpdxId
 
 plugins {
@@ -12,6 +13,27 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "2.4.10"
 }
 
+/**
+ * Stable signing.
+ *
+ * Without this the build signs with whatever debug keystore Gradle happens to generate, and the
+ * container is disposable, so every build produced a different certificate. Android then refuses
+ * to upgrade in place (INSTALL_FAILED_UPDATE_INCOMPATIBLE) and the app has to be uninstalled,
+ * losing bookmarks, history and cookies each time. The key lives outside the repository and is
+ * supplied through the environment.
+ */
+val devToolsKeystore = providers.environmentVariable("DEVTOOLS_KEYSTORE").orNull
+val devToolsKeystorePassword = providers.environmentVariable("DEVTOOLS_KEYSTORE_PASSWORD").orNull
+val devToolsKeyAlias = providers.environmentVariable("DEVTOOLS_KEY_ALIAS").orNull
+val devToolsKeyPassword = providers.environmentVariable("DEVTOOLS_KEY_PASSWORD").orNull
+val hasStableSigning = !devToolsKeystore.isNullOrBlank() && File(devToolsKeystore).exists()
+
+/**
+ * Android only treats an install as an upgrade when the version code increases, so it is derived
+ * from the commit count rather than pinned. Falls back to the upstream constant when unset.
+ */
+val devToolsVersionCode = providers.environmentVariable("DEVTOOLS_VERSION_CODE").orNull?.toIntOrNull()
+
 android {
     compileSdk = 37
     compileSdkMinor = 1
@@ -25,6 +47,17 @@ android {
     }
 
     val isCi = System.getenv("CI") == "true"
+
+    if (hasStableSigning) {
+        signingConfigs {
+            create("stable") {
+                storeFile = File(devToolsKeystore!!)
+                storePassword = devToolsKeystorePassword
+                keyAlias = devToolsKeyAlias
+                keyPassword = devToolsKeyPassword
+            }
+        }
+    }
 
     sourceSets {
         create("lightningPlus").apply {
@@ -43,6 +76,9 @@ android {
 
     buildTypes {
         named("debug") {
+            if (hasStableSigning) {
+                signingConfig = signingConfigs.getByName("stable")
+            }
             multiDexEnabled = true
             isMinifyEnabled = false
             isShrinkResources = false
@@ -70,7 +106,7 @@ android {
 
     flavorDimensions.add("capabilities")
 
-    val commonVersionCode = 102
+    val commonVersionCode = devToolsVersionCode ?: 102
 
     productFlavors {
         create("lightningPlus") {
