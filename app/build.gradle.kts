@@ -44,6 +44,11 @@ android {
         targetSdk = 37
         versionName = "5.1.0"
         vectorDrawables.useSupportLibrary = true
+
+        // The label is set here rather than through @string/app_name because app_name is
+        // translated in twenty locales; a resource override would leave a non-English device
+        // still showing the upstream name.
+        manifestPlaceholders["appLabel"] = "Lightning DevTools"
     }
 
     val isCi = System.getenv("CI") == "true"
@@ -112,13 +117,15 @@ android {
         create("lightningPlus") {
             dimension = "capabilities"
             buildConfigField("boolean", "FULL_VERSION", "Boolean.parseBoolean(\"true\")")
-            applicationId = "acr.browser.lightning"
+            applicationId = "com.razvanfarte.lightningdevtools"
+            manifestPlaceholders["appLabel"] = "Lightning DevTools"
             versionCode = commonVersionCode
         }
         create("lightningLite") {
             dimension = "capabilities"
             buildConfigField("boolean", "FULL_VERSION", "Boolean.parseBoolean(\"false\")")
-            applicationId = "acr.browser.barebones"
+            applicationId = "com.razvanfarte.lightningdevtools.lite"
+            manifestPlaceholders["appLabel"] = "Lightning DevTools Lite"
             versionCode = commonVersionCode
         }
     }
