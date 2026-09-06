@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Lightning DevTools app icon, master source.
+
+  A deliberate variant of upstream Lightning-Browser's icon, not a copy: same underlying idea (a
+  bolt inside a circle) but a different silhouette, palette and mood, so the two are recognisable
+  as related but never mistaken for one another at a glance - the way the app.usebraintrust.com
+  incident showed the *package identity* needed to differ, this makes the *visual* identity differ
+  too. The bolt keeps the lineage; the angle brackets around it ("<zap>") say "developer tool"
+  before you even read the label. Colours move from upstream's cheerful blue/orange to a dark
+  slate background with a terminal-green bolt, matching a DevTools console rather than a browser.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="216" height="216" viewBox="0 0 108 108">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1C2128"/>
+      <stop offset="1" stop-color="#10141A"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#37F5B0"/>
+      <stop offset="1" stop-color="#0FD68A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="108" height="108" fill="url(#bg)"/>
+
+  <path d="M34,38 L22,54 L34,70" fill="none" stroke="#F4FBF8" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>
+  <path d="M74,38 L86,54 L74,70" fill="none" stroke="#F4FBF8" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>
+
+  <path d="M56,34 L36,58 L54,58 L52,74 L72,50 L54,50 Z" fill="url(#bolt)"/>
+</svg>
