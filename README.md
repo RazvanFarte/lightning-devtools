@@ -62,8 +62,7 @@ Overflow menu → **DevTools**. Recording starts automatically when the panel op
 
 ## Install
 
-Grab the latest APK from [Releases](../../releases). This repository is private, so download it
-while logged into GitHub in your phone's browser, or the link will 404.
+Grab the latest APK from [Releases](../../releases).
 
 The package is `com.razvanfarte.lightningdevtools` — distinct from upstream Lightning's
 `acr.browser.lightning` — so it installs alongside the real Lightning-Browser rather than
