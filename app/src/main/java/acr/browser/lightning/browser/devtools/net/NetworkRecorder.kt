@@ -131,6 +131,9 @@ class NetworkRecorder @Inject constructor(
      * POST, which is never replayed) is a standalone entry added.
      */
     fun addAgentEntry(entry: RecordedEntry) {
+        // The page agent keeps running while recording is paused, so it is gated here: otherwise
+        // POSTs and beacons (analytics, mostly) would keep landing in the log after a pause.
+        if (!_isRecording.value) return
         _entries.update { current ->
             val index = current.indexOfLast { it.canMergeWith(entry) }
             if (index < 0) {

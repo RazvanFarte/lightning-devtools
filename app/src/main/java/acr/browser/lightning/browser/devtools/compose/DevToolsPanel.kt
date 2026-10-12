@@ -2,6 +2,7 @@ package acr.browser.lightning.browser.devtools.compose
 
 import acr.browser.lightning.browser.devtools.DevToolsController
 import acr.browser.lightning.browser.devtools.console.ConsoleMessage
+import acr.browser.lightning.browser.devtools.net.EntryFilter
 import acr.browser.lightning.browser.devtools.net.RecordedEntry
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -50,8 +52,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -148,10 +153,12 @@ private fun NetworkTab(
     val isRecording by controller.networkRecorder.isRecording.collectAsState()
     val redactSecrets by controller.redactSecrets.collectAsState()
     var filter by remember { mutableStateOf("all") }
+    var query by remember { mutableStateOf("") }
     var expandedId by remember { mutableStateOf<String?>(null) }
 
-    val visible = remember(entries, filter) {
-        if (filter == "all") entries else entries.filter { it.resourceType == filter }
+    val visible = remember(entries, filter, query) {
+        val byType = if (filter == "all") entries else entries.filter { it.resourceType == filter }
+        EntryFilter.apply(byType, query)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -176,6 +183,26 @@ private fun NetworkTab(
             TextButton(onClick = onExport) { Text("Export HAR") }
             TextButton(onClick = onShare) { Text("Share") }
         }
+
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            singleLine = true,
+            placeholder = { Text("Filter: api, domain.com, graphql...") },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    TextButton(onClick = { query = "" }) { Text("Clear") }
+                }
+            },
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+                imeAction = ImeAction.Search
+            )
+        )
 
         Row(
             modifier = Modifier
@@ -205,7 +232,8 @@ private fun NetworkTab(
         }
 
         Text(
-            text = "${visible.size} requests" +
+            text = (if (visible.size == entries.size) "${entries.size} requests"
+            else "${visible.size} of ${entries.size} requests") +
                 if (isRecording) "" else "  -  recording off",
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
@@ -214,10 +242,10 @@ private fun NetworkTab(
 
         if (visible.isEmpty()) {
             EmptyState(
-                if (isRecording) {
-                    "Recording. Load a page to capture requests."
-                } else {
-                    "Press Record, then load a page."
+                when {
+                    entries.isNotEmpty() -> "No requests match the filter."
+                    isRecording -> "Recording. Load a page to capture requests."
+                    else -> "Press Record, then load a page."
                 }
             )
         } else {
