@@ -9,6 +9,22 @@
 
 ---
 
+## For the commute
+
+Your company wants you in the office five days a week, and the commute now eats ten hours of your
+week? Use the time. Open a page on your phone, record what it does, and hand the result to your
+Claude Code session on the train: a **HAR file with credentials stripped**, or any single request
+as a **`curl` command with live cookies and tokens** to drop straight into an automation.
+
+Thanks to the employers and the transit operators who made the free time, to Anthony Restaino and
+the Lightning-Browser contributors for years of pre-AI work this is built on, and to Claude, which
+wrote most of the DevTools code in this fork.
+
+> A `curl` export carries real credentials, on purpose, because a redacted command cannot run.
+> Treat it like a password: don't paste it into a public issue or a shared chat.
+
+---
+
 ## Why this exists
 
 Chrome and Safari's DevTools live entirely on the desktop, reached over USB with
@@ -55,7 +71,9 @@ it — is in [`docs/PROGRESS.md`](docs/PROGRESS.md) and [`docs/DECISIONS.md`](do
 Overflow menu → **DevTools**. Recording starts automatically when the panel opens.
 
 1. Load or reload the page you want to inspect.
-2. **Network** tab: tap a row to expand it (headers, timings, bodies); long-press, or its `⋮`
+2. **Network** tab: type in the filter box to narrow a long list (`api`, `graphql`, `domain.com`;
+   several words must all match). **Stop** pauses logging, which helps on analytics-heavy sites;
+   **Record** resumes. Tap a row to expand it (headers, timings, bodies); long-press, or its `⋮`
    button, to copy it as `curl` or send it elsewhere.
 3. **Export HAR** writes to Downloads; **Share** sends the file directly to another app.
 4. **Console** tab shows `console.*` output and uncaught errors as they happen.
