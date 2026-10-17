@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
  * child folder.
  * @param findInPage The text that we are searching the page for.
  * @param isIncognito True if we are in incognito mode, false otherwise.
+ * @param isDesktopMode True if the current tab is requesting desktop sites, false otherwise.
  * @param tabs The state for each currently open tab.
  * @param tabCountText The text to display in the tab count icon.
  * @param dialog The currently open dialog if any.
@@ -75,6 +76,8 @@ data class BrowserViewState(
     val findInPage: String?,
 
     val isIncognito: Boolean,
+
+    val isDesktopMode: Boolean = false,
 
     // Tabs
     val tabs: List<TabViewState>,
@@ -212,6 +215,8 @@ class BrowserComposeState(
 
     var isIncognito: Boolean by mutableStateOf(browserViewState.isIncognito)
 
+    var isDesktopMode: Boolean by mutableStateOf(browserViewState.isDesktopMode)
+
     // Tabs
     var tabs: List<TabViewState> by mutableStateOf(browserViewState.tabs)
     var tabCountText: String by mutableStateOf(browserViewState.tabCountText)
@@ -248,6 +253,7 @@ class BrowserComposeState(
         isRootFolder = browserViewState.isRootFolder
         findInPage = browserViewState.findInPage
         isIncognito = browserViewState.isIncognito
+        isDesktopMode = browserViewState.isDesktopMode
         tabs = browserViewState.tabs
         tabCountText = browserViewState.tabCountText
         dialog = browserViewState.dialog

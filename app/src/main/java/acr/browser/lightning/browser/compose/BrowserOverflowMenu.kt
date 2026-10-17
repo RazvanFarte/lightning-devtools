@@ -7,6 +7,7 @@ import acr.browser.lightning.browser.BrowserPresenter
 import acr.browser.lightning.browser.menu.MenuSelection
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -124,6 +125,20 @@ fun BrowserOverflowMenu(presenter: BrowserPresenter, browserViewState: BrowserCo
                     text = { Text(stringResource(R.string.action_add_bookmark)) },
                     onClick = {
                         presenter.onEvent(BrowserUiEvent.MenuClick(MenuSelection.ADD_BOOKMARK))
+                        dropDownExpanded = false
+                    }
+                )
+            }
+            // Per tab, like Chrome's: the tick reflects the tab on screen, and toggling it reloads
+            // that tab only. Hidden on internal pages, which have no desktop variant to request.
+            if (browserViewState.enableFullMenu) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.action_request_desktop_site)) },
+                    trailingIcon = {
+                        Checkbox(checked = browserViewState.isDesktopMode, onCheckedChange = null)
+                    },
+                    onClick = {
+                        presenter.onEvent(BrowserUiEvent.ToggleDesktopAgentClick)
                         dropDownExpanded = false
                     }
                 )

@@ -383,6 +383,7 @@ class BrowserPresenter @Inject constructor(
                     sslState = SslState.None,
                     progress = 100,
                     findInPage = null,
+                    isDesktopMode = false,
                     tabs = tabs.map { it.copy(isSelected = false) }
                 )
             }
@@ -396,6 +397,7 @@ class BrowserPresenter @Inject constructor(
         state.updateSelf {
             val updatedState = updateTabViewState()
             updatedState.copy(
+                isDesktopMode = tab.isDesktopMode,
                 scrollToTab = updatedState.tabs.indexOfFirst { it.isSelected },
                 toolbarVisibility = updatedToolbarVisibility
             )
@@ -1038,8 +1040,10 @@ class BrowserPresenter @Inject constructor(
 
     private suspend fun onToggleDesktopAgent() {
         onDialogDismissed()
-        currentTab?.toggleDesktopAgent()
-        currentTab?.reload()
+        val tab = currentTab ?: return
+        tab.toggleDesktopAgent()
+        state.updateSelf { copy(isDesktopMode = tab.isDesktopMode) }
+        tab.reload()
     }
 
     private suspend fun onToggleAdBlocking() {

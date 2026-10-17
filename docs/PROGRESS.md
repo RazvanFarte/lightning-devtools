@@ -138,3 +138,21 @@ package identity, so it is the first icon change that upgrades in place with no 
 
 Also the point at which this `docs/` structure and the rewritten `README.md` were added, to make
 the reasoning behind all of the above legible without re-reading every commit message.
+
+## v0.6.0 — Request desktop site, per tab
+
+Requested directly: a "Request desktop site" checkbox in the overflow menu, scoped to the open tab,
+as Chrome for Android has it. Upstream already had a hidden per-tab toggle (in the page tools
+sheet), but it only swapped the user agent string for a hardcoded Chrome 76 one, which fails on
+two counts: some sites reject a 2019 browser outright, and responsive sites ignore the user agent
+entirely and keep their phone layout because their `<meta name="viewport">` says
+`width=device-width`.
+
+Desktop mode now changes three things on that tab's WebView only: a desktop user agent derived from
+the WebView's real Chrome major version (Chrome's own `X11; Linux x86_64` form), client hints via
+`setUserAgentMetadata` (`Sec-CH-UA-Mobile: ?0`), and a document-start script that rewrites every
+viewport tag to `width=1024` with wide viewport and overview mode forced on. Unticking restores the
+previous values and removes the script. The state is in memory only — it does not survive a tab
+being restored from a saved session.
+
+Verified: compiles, `DesktopUserAgentTest` (3 cases) passes. Not yet exercised on a device.

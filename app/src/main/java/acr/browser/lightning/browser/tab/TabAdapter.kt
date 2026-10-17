@@ -8,13 +8,14 @@ import acr.browser.lightning.browser.view.setCompositeTouchListener
 import acr.browser.lightning.concurrency.CoroutineDispatchers
 import acr.browser.lightning.concurrency.TabCoroutineScope
 import acr.browser.lightning.connectivity.ConnectivityProvider
-import acr.browser.lightning.constant.DESKTOP_USER_AGENT
 import acr.browser.lightning.download.PendingDownload
 import acr.browser.lightning.ids.ViewIdGenerator
 import acr.browser.lightning.preview.PreviewModel
 import acr.browser.lightning.ssl.SslCertificateInfo
 import acr.browser.lightning.ssl.SslState
+import acr.browser.lightning.useragent.DESKTOP_VIEWPORT_JS
 import acr.browser.lightning.useragent.UserAgentProvider
+import acr.browser.lightning.useragent.desktopUserAgentFrom
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -26,9 +27,15 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.result.ActivityResult
 import androidx.core.graphics.createBitmap
+import androidx.webkit.ScriptHandler
+import androidx.webkit.UserAgentMetadata
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
@@ -88,6 +95,10 @@ class TabAdapter @AssistedInject constructor(
 
     private var findInPageQuery: String? = null
     private var toggleDesktop: Boolean = false
+    private var desktopViewportScript: ScriptHandler? = null
+    private var mobileUserAgentMetadata: UserAgentMetadata? = null
+    private var mobileWideViewPort: Boolean = true
+    private var mobileOverviewMode: Boolean = true
     private val downloadsShareFlow = MutableSharedFlow<PendingDownload>()
     private val focusSharedFlow = MutableSharedFlow<Unit>()
     private val showHideFlow = MutableSharedFlow<Boolean>()
@@ -230,14 +241,70 @@ class TabAdapter @AssistedInject constructor(
 
     override fun canGoForwardChanges(): Flow<Boolean> = tabWebViewClient.goForwardSharedFlow
 
+    override val isDesktopMode: Boolean
+        get() = toggleDesktop
+
     override suspend fun toggleDesktopAgent() {
-        webView.settings.userAgentString = if (!toggleDesktop) {
-            DESKTOP_USER_AGENT
+        if (!toggleDesktop) {
+            enterDesktopMode()
         } else {
-            userAgentProvider.getUserAgent()
+            exitDesktopMode()
         }
 
         toggleDesktop = !toggleDesktop
+    }
+
+    /**
+     * Mirrors what Chrome's "Request desktop site" changes, all scoped to this tab's [WebView]: the
+     * user agent string, the `Sec-CH-UA-Mobile`/platform client hints that sites increasingly
+     * check instead of the string, and the layout viewport, without which responsive sites keep
+     * serving their phone layout regardless of what the user agent claims.
+     */
+    private fun enterDesktopMode() {
+        val settings = webView.settings
+        settings.userAgentString =
+            desktopUserAgentFrom(WebSettings.getDefaultUserAgent(webView.context))
+
+        mobileWideViewPort = settings.useWideViewPort
+        mobileOverviewMode = settings.loadWithOverviewMode
+        settings.useWideViewPort = true
+        settings.loadWithOverviewMode = true
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+            runCatching {
+                val mobileMetadata = WebSettingsCompat.getUserAgentMetadata(settings)
+                mobileUserAgentMetadata = mobileMetadata
+                WebSettingsCompat.setUserAgentMetadata(
+                    settings,
+                    UserAgentMetadata.Builder(mobileMetadata)
+                        .setMobile(false)
+                        .setPlatform(DESKTOP_PLATFORM)
+                        .setModel("")
+                        .build()
+                )
+            }
+        }
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            desktopViewportScript = runCatching {
+                WebViewCompat.addDocumentStartJavaScript(webView, DESKTOP_VIEWPORT_JS, ALL_ORIGINS)
+            }.getOrNull()
+        }
+    }
+
+    private suspend fun exitDesktopMode() {
+        val settings = webView.settings
+        settings.userAgentString = userAgentProvider.getUserAgent()
+        settings.useWideViewPort = mobileWideViewPort
+        settings.loadWithOverviewMode = mobileOverviewMode
+
+        mobileUserAgentMetadata?.let { metadata ->
+            runCatching { WebSettingsCompat.setUserAgentMetadata(settings, metadata) }
+        }
+        mobileUserAgentMetadata = null
+
+        desktopViewportScript?.remove()
+        desktopViewportScript = null
     }
 
     override fun reload() {
@@ -450,3 +517,6 @@ class TabAdapter @AssistedInject constructor(
         return@withContext bitmap
     }
 }
+
+private const val DESKTOP_PLATFORM = "Linux"
+private val ALL_ORIGINS = setOf("*")

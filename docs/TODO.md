@@ -36,6 +36,11 @@ compiling, unit-testing, and inspecting the built APK's contents, not by running
   interaction is the first place to check for a regression.
 - **The monochrome (Android 13+ themed) icon layer** has never been seen rendered by a real
   launcher — only confirmed to compile and be referenced correctly from `ic_launcher.xml`.
+- **"Request desktop site" (overflow menu).** Per tab: desktop user agent derived from the
+  WebView's own Chrome version, `Sec-CH-UA-Mobile: ?0` via `setUserAgentMetadata`, and a
+  document-start script that rewrites `<meta name="viewport">` to `width=1024` so responsive sites
+  actually switch layout. Check on a real device that a responsive site (e.g. github.com) shows its
+  desktop layout, that unticking restores the phone layout, and that other tabs are unaffected.
 - **Redirect double-fetch behaviour** under real network conditions (slow connections, redirect
   chains longer than one hop) has only been reasoned about, not observed.
 

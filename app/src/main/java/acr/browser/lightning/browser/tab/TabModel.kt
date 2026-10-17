@@ -70,7 +70,13 @@ interface TabModel {
     fun canGoForwardChanges(): Flow<Boolean>
 
     /**
-     * Toggle the user agent used by the browser to a desktop one or back to the default one.
+     * True if this tab is currently requesting desktop sites, see [toggleDesktopAgent].
+     */
+    val isDesktopMode: Boolean
+
+    /**
+     * Toggle this tab between requesting desktop sites and its default user agent. Takes effect on
+     * the next load, so callers are expected to [reload].
      */
     suspend fun toggleDesktopAgent()
 
