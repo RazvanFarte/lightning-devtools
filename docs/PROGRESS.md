@@ -155,4 +155,5 @@ viewport tag to `width=1024` with wide viewport and overview mode forced on. Unt
 previous values and removes the script. The state is in memory only — it does not survive a tab
 being restored from a saved session.
 
-Verified: compiles, `DesktopUserAgentTest` (3 cases) passes. Not yet exercised on a device.
+Verified: compiles, `DesktopUserAgentTest` (3 cases) passes, and confirmed working on a real
+device after release.
